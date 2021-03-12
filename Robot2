@@ -1,0 +1,211 @@
+import vrad_comms
+import robot1
+import robot2
+import math
+import time
+
+'''
+
+- This script controls the second robot. 
+- It will only start moving if there is a viable mine.
+- Chooses any odd index'd mines and chargers
+
+'''
+
+
+thisRobot = robot2 #The robot to control
+maxAltitude = 5.5 #The altitude to fly at to avoid other drones and buildings
+
+redBasePosition = [4.75, -29.23]
+blueBasePosition = [7.83, 44.3]
+isRedTeam = thisRobot.getGPS()[2] < 0
+
+
+basePosition = [0, 0]
+if isRedTeam:
+	basePosition = redBasePosition
+else:
+	basePosition = blueBasePosition
+
+
+minForwardAngle = .5
+badMines = [[0,0]] #A list of mines that have already been visited
+isFinished = False
+#Remanaging the robot to prioritize speed
+thisRobot.remanage ({'hullPoints':3,'speedAP':5,'accelerationAP':0,'batteryAP':0,'sensorRangeAP':0,'holdingCapacityAP':4});
+
+
+
+
+
+#---------------------------------------METHODS---------------------------------------
+
+
+
+
+
+#Get an array with the x and z position of the robot.
+def getRobotPos():
+	return [thisRobot.getGPS()[0], thisRobot.getGPS()[2]]
+#Check if a mine has been gone to already
+def mineIsBad (mine):
+	return mine in badMines
+#Check if the input value is even
+def isEven (value):
+	return value % 2 == 0
+#Use a remanaging bug to instantly charge the robot when at base
+def instantCharge ():
+  	thisRobot.remanage ({'hullPoints':3,'speedAP':5,'accelerationAP':0,'batteryAP':0,'sensorRangeAP':0,'holdingCapacityAP':4});
+  
+#Get closest point in an array of points
+def getClosestPointInArray(array):
+	outputPoint = [0,0]
+	closestDistance = 1000
+	#Loop through all mines
+	for i in range(len(array)):
+		point = array[i]
+		distanceToPoint = float(thisRobot.getDistanceTo(point[0], point[1]))
+		#Check if the point is the closest and valid
+		if distanceToPoint < closestDistance and not mineIsBad(point) and isEven(i):
+			closestDistance = distanceToPoint
+			outputPoint = point
+	return outputPoint
+#Moves the robot to align itself with a position's x-axis
+def alignXAxis(position):
+	xDelta = getRobotPos()[0] - position[0]
+	if xDelta >= 0:
+		if isRedTeam:
+			thisRobot.moveRight (math.fabs (xDelta))
+		else:
+			thisRobot.moveLeft (math.fabs (xDelta))
+	else:
+		if isRedTeam:
+			thisRobot.moveLeft (math.fabs (xDelta))
+		else:
+			thisRobot.moveRight (math.fabs (xDelta))
+#Moves the robot to align itself with a position's z-axis
+def alignZAxis(position):
+	zDelta = getRobotPos()[1] - position[1]
+	if zDelta >= 0:
+		if isRedTeam:
+			thisRobot.moveBackward (math.fabs (zDelta))
+		else:
+			thisRobot.moveForward (math.fabs (zDelta))
+	else:
+		if isRedTeam:
+			thisRobot.moveForward (math.fabs (zDelta))
+		else:
+			thisRobot.moveBackward (math.fabs (zDelta))
+#Go to an [x,z] position on the map
+def goToPosition (position, firstAxis):
+  	#if not isAligned(.01):
+		#turnToZero()
+		
+	if firstAxis == "z":
+		alignZAxis(position)
+		alignXAxis(position)
+	elif firstAxis == "x":
+		alignXAxis(position)
+		alignZAxis(position)
+	xDelta = getRobotPos()[0] - position[0]
+	zDelta = getRobotPos()[1] - position[1]
+	if math.fabs(xDelta) >= .2 and math.fabs(zDelta) >= .2:
+		goToPosition(position, firstAxis)
+		
+#Go to the home base and recharge
+def goToBase ():
+	goToPosition(basePosition, "x")
+	thisRobot.land()
+	instantCharge ()
+	thisRobot.deposit()
+#Go to the nearest charger
+def goToNearestCharger():
+	currentCharger = getClosestPointInArray(vrad_comms.getChargers())
+	goToPosition(currentCharger, "z")
+	land()
+	charge(90)
+	return currentCharger
+#Go to the nearest mine
+def goToNearestMine():
+	currentMine = getClosestPointInArray(vrad_comms.getMines())
+	goToPosition(currentMine, "z")
+	return currentMine
+#Charge the robot to a given percent
+def charge (percent):
+	while (thisRobot.getBattery() < percent):
+		time.sleep(0.01)
+#Land the drone
+def land():
+	prevPos = thisRobot.getGPS()
+	while True:
+		thisRobot.moveDown(.5)
+		if thisRobot.getGPS()[1] == prevPos[1]:
+			break
+		prevPos = thisRobot.getGPS()
+#Checks if the robot heading is close enough to 0
+def isAligned(errorRange):
+  	if isRedTeam:
+		if thisRobot.getHeading() < errorRange or thisRobot.getHeading() > 360 - errorRange:
+			return True
+	else:
+	  	if thisRobot.getHeading() < 180 + errorRange and thisRobot.getHeading() > 180 - errorRange:
+		  return True
+	return False
+#Turn the robot's heading to 0 degrees
+def turnToZero():
+	speed = 1
+	while not isAligned(.004):
+		if (isAligned(70)):
+			speed /= 1.02
+		if isRedTeam:
+			if (thisRobot.getHeading() < 180):
+				thisRobot.linearAngular(0, speed)
+			else:
+				thisRobot.linearAngular(0, -speed)
+		else:
+		  	if thisRobot.getHeading() > 180 and thisRobot.getHeading() < 360:
+				thisRobot.linearAngular(0, speed)
+			else:
+				thisRobot.linearAngular(0, -speed)
+		if thisRobot.getBattery() < 10:
+		 	land()
+		  	charge(50)
+		  	break
+	thisRobot.linearAngular(0, 0)
+
+def followRobot ():
+	robot1Pos = [robot1.getGPS()[0], robot1.getGPS()[2]]
+	goToPosition (robot1Pos, "x")
+
+
+#---------------------------------------REALTIME---------------------------------------
+		
+#thisRobot.takeControl()
+
+while True:
+	#check if there are any mines
+	if getClosestPointInArray(vrad_comms.getMines()) != [0, 0]:
+		isFinished = False
+		thisRobot.takeOff (maxAltitude - thisRobot.getGPS()[1])
+		currentMine = goToNearestMine()
+		land()
+		time.sleep(.1)
+		thisRobot.mine()
+		badMines.append(currentMine)
+		thisRobot.takeOff (maxAltitude - thisRobot.getGPS()[1])
+		if thisRobot.getCurrentlyCarrying() <= 1:
+			if thisRobot.getBattery() < 60:
+				goToNearestCharger()
+				land()
+				charge(100)
+			if thisRobot.getCurrentlyCarrying() == 0:
+				continue
+		goToBase()
+	elif len(vrad_comms.getMines()) == 0:
+		if thisRobot.getGPS()[1] < maxAltitude - .1:
+			thisRobot.takeOff (maxAltitude - thisRobot.getGPS()[1])
+		followRobot ()
+	elif len(badMines) != 1 and not isFinished:
+		print ("No more mines for Robot2!")
+		isFinished = True
+
