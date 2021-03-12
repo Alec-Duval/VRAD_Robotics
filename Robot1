@@ -1,0 +1,38 @@
+import robot1
+import robot2
+import robot3
+import time
+import math
+import vrad_comms
+
+'''
+
+- This script controls the first robot that is controlled by keyboard input
+- Print's the battery of both other robots
+
+'''
+redBasePosition = [7.94, -31.25]
+blueBasePosition = [6.59, 43.05]
+isRedTeam = robot1.getGPS()[2] < 0
+if isRedTeam:
+	basePosition = redBasePosition
+else:
+	basePosition = blueBasePosition
+	
+robot1.takeControl()
+
+while (True):
+	#Print the battery and carrying amount of both automated robots
+	robot1Carrying = str(robot1.getCurrentlyCarrying())
+	robot2Battery = str(robot2.getBattery())
+	robot2Carrying = str(robot2.getCurrentlyCarrying())
+	robot3Battery = str(robot3.getBattery())
+	robot3Carrying = str(robot3.getCurrentlyCarrying())
+	print ("Robot1: " + robot1Carrying + "    Robot2: " + robot2Battery + " / " + robot2Carrying + "    Robot3: " + robot3Battery + " / " + robot3Carrying + " / " + str(len(vrad_comms.getMines())))
+	#Allow charging when on the ground
+	robot1.toggleSensors(robot1.getGPS()[1] > 1)
+	if robot1.getGPS()[1] < 1 and robot1.getCurrentlyCarrying() < 2:
+		robot1.mine()
+	if math.fabs(robot1.getGPS()[0] - basePosition[0]) < 2 and math.fabs(robot1.getGPS()[2] - basePosition[1]) < 2 and robot1.getGPS()[1] < 2.25 and robot1.getCurrentlyCarrying() != 0:
+		robot1.deposit()
+	time.sleep (1)
