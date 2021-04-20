@@ -1,0 +1,224 @@
+import robot1
+import robot2
+import robot3
+import vrad_comms
+import math
+import time
+
+'''
+
+Leave base when mines have been found
+re-align
+move on z axis
+move on x axis
+while not position aligned
+	if not aligned, re-align
+	move on z axis
+	move on x axis
+land
+wait for .1
+mine
+take-off
+re-align
+check if has enough battery
+	if not enough battery, go to a charger that is closest to the midpoint between the home 	base and the robot
+	land
+	charge until enough power to get back
+	take-off
+move on z axis
+move on x axis
+while not position aligned
+	move on x axis
+	move on z axis
+land
+wait for .1
+deposit
+
+'''
+
+thisRobot = robot3
+maximumAlignedThreshold = .2
+maximumPositionOffsetThreshold = .2
+isRedTeam = thisRobot.getGPS()[2] < 0
+altitude = 4
+redBasePosition = [6.37, -30.39]
+blueBasePosition = [4.59, 42.59]
+
+badMines = []
+
+#def distanceFromBase ():
+
+#Remanaging the robot to prioritize speed
+thisRobot.remanage ({'hullPoints':3,'speedAP':5,'accelerationAP':0,'batteryAP':0,'sensorRangeAP':0,'holdingCapacityAP':4});
+
+def getRobotPos ():
+	return [thisRobot.getGPS()[0], thisRobot.getGPS()[2]]
+
+def getDistance (pointA, pointB):
+	return math.sqrt(math.pow(pointA[0] - pointB[0], 2) + math.pow(pointA[1] - pointB[1],2))
+
+def getBatteryPerDistance(distance):
+	value = distance * math.sqrt(2)
+	return value/10.0 * 5.24 + 3
+
+def hasSufficientBattery (distance):
+	return distance * getBatteryPerDistance + 5 < thisRobot.getBattery()
+
+def getBasePosition ():
+	if isRedTeam:
+		return redBasePosition
+	else:
+		return blueBasePosition
+	
+def slowCharge(amount):
+	while thisRobot.getBattery() < amount:
+		time.sleep(.01)
+		
+def instantCharge():
+	thisRobot.remanage ({'hullPoints':3,'speedAP':5,'accelerationAP':0,'batteryAP':0,'sensorRangeAP':0,'holdingCapacityAP':4});
+	
+def takeOff():
+	thisRobot.takeOff (altitude - thisRobot.getGPS()[1])
+
+def isBadMine(mine):
+	return mine in badMines
+	
+def alignXAxis (Xposition, percentage):
+	xDelta = (getRobotPos()[0] - Xposition) * percentage
+	if xDelta >= 0:
+		if isRedTeam:
+			thisRobot.moveRight (math.fabs (xDelta))
+		else:
+			thisRobot.moveLeft (math.fabs (xDelta))
+	else:
+		if isRedTeam:
+			thisRobot.moveLeft (math.fabs (xDelta))
+		else:
+			thisRobot.moveRight (math.fabs (xDelta))
+	
+def alignZAxis (Zposition, percentage):
+	zDelta = (getRobotPos()[1] - Zposition) * percentage
+	if zDelta >= 0:
+		if isRedTeam:
+			thisRobot.moveBackward (math.fabs (zDelta))
+		else:
+			thisRobot.moveForward (math.fabs (zDelta))
+	else:
+		if isRedTeam:
+			thisRobot.moveForward (math.fabs (zDelta))
+		else:
+			thisRobot.moveBackward (math.fabs (zDelta))
+
+def moveToPosition (position, firstAxis, atPositionThreshold, positionPercentage):
+	alignAngle()
+	while True:
+		if firstAxis == 'x':
+			alignXAxis(position[0], positionPercentage)
+			alignZAxis(position[1], positionPercentage)
+		elif firstAxis == 'z':
+			alignZAxis(position[1], positionPercentage)
+			alignXAxis(position[0], positionPercentage)
+		if isAtPosition (position, atPositionThreshold):
+			break
+		else:
+			moveToPosition (position, firstAxis, atPositionThreshold, positionPercentage * 0.9)
+
+def isAligned():
+	angle = thisRobot.getHeading()
+	if isRedTeam:
+		if angle < maximumAlignedThreshold or angle > 360 - maximumAlignedThreshold:
+			return True
+	else:
+		if angle < 180 + maximumAlignedThreshold and angle > 180 - maximumAlignedThreshold:
+			return True
+	return False
+
+def alignAngle():
+	angle = thisRobot.getHeading()
+	speed = .99
+	while not isAligned():
+		if isRedTeam:
+			if (thisRobot.getHeading() < 180):
+				thisRobot.linearAngular(0, speed)
+			else:
+				thisRobot.linearAngular(0, -speed)
+		else:
+			if thisRobot.getHeading() > 180 and thisRobot.getHeading() < 360:
+				thisRobot.linearAngular(0, speed)
+			else:
+				thisRobot.linearAngular(0, -speed)
+		speed *= .95
+
+def isAtPosition (position, atPositionThreshold):
+	return getDistance (getRobotPos(), position) < atPositionThreshold
+	
+def getClosestMine():
+	closestMine = [0,0]
+	closestDistance = 9999
+	for i in range(len(vrad_comms.getMines())):
+		mine = vrad_comms.getMines()[i]
+		distance = getDistance (mine, getRobotPos())
+		if distance < closestDistance and not isBadMine(mine) and i%2 == 1:
+			closestDistance = distance
+			closestMine = mine
+	return closestMine
+
+def getClosestCharger(range):
+	closestCharger = [0,0]
+	closestDistance = range
+	for charger in vrad_comms.getChargers():
+		distance = getDistance (charger, getRobotPos())
+		if distance < closestDistance:
+			closestDistance = distance
+			closestCharger = charger
+	return closestCharger
+	
+
+
+#robot2.takeControl()
+
+while True:
+	if vrad_comms.getMines() != []:
+		closestMine = getClosestMine()
+		distanceToMine = getDistance (getRobotPos(), closestMine)
+		batteryToMine = getBatteryPerDistance(distanceToMine)
+		if thisRobot.getBattery() < batteryToMine:
+			closestCharger = getClosestCharger(distanceToMine)
+			if closestCharger != [0,0]:
+				moveToPosition(closestCharger, 'z', .1, 1)
+				thisRobot.land()
+			slowCharge(math.min (batteryToMine + 3, 100))
+		takeOff()
+		moveToPosition (closestMine, 'z', .15, 1)
+		thisRobot.land() #make custom land
+		time.sleep (.1)
+		thisRobot.mine()
+		badMines.append(closestMine)
+		takeOff()
+		
+		if thisRobot.getCurrentlyCarrying() > 1 or len(badMines) == 10:
+			distanceToBase = getDistance(getRobotPos(), getBasePosition ())
+			batteryToBase = getBatteryPerDistance(distanceToBase)
+			if thisRobot.getBattery() < batteryToBase:
+				closestCharger = getClosestCharger(distanceToBase)
+				if closestCharger != [0,0]:
+					moveToPosition(closestCharger, 'z', .1, 1)
+					thisRobot.land()
+				slowCharge(min (batteryToBase + 3, 100))
+				takeOff()
+			moveToPosition(getBasePosition (), 'x', .25, 1)
+			thisRobot.land()
+			time.sleep (.1)
+			instantCharge()
+			thisRobot.deposit()
+		else:
+			continue
+		
+	#Either go back to base, land, or go to nearest charger
+
+		
+		
+		
+		
+		
+		

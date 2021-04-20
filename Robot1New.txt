@@ -1,0 +1,20 @@
+import robot1
+import robot2
+import robot3
+import vrad_comms
+import math
+import time
+
+robot1.takeControl()
+robot1.toggleSensors (True)
+
+def robotData (name, robot):
+	return "{0}: {1} / {2}".format(name, robot.getBattery(), robot.getCurrentlyCarrying())
+
+while True:
+	time.sleep(.5)
+	robot1.toggleSensors (robot1.getGPS()[1] > 1)
+	if robot1.getGPS()[1] <= 1:
+		robot1.mine()
+	print (robotData("Robot1", robot1) + "\t" + robotData("Robot2", robot2) + "\t" + robotData("Robot3", robot3) + "\t" + str(len(vrad_comms.getMines())))
+	
